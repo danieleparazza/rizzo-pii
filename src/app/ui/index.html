@@ -379,6 +379,10 @@ try{const t=localStorage.getItem('pii_theme');if(t==='dark'||t==='light')documen
   .csvtbl .m-preserve,.csvtbl thead .m-preserve .ctog{color:var(--soft)}
   .csvtbl thead .m-preserve .ctog{font-weight:600}
   .csvtbl .ph{cursor:default;font-size:11.5px}
+  .csvfile .sheetname{display:flex;align-items:center;gap:7px;padding:9px 12px 0;font-size:12.5px;font-weight:650;color:var(--ink)}
+  .csvfile .sheetname .hint{font-weight:400;margin-left:auto}
+  .sec .sheetname{padding:2px 0 0}
+  .csvfile .xnote{padding:9px 12px 0}
   .progress.ok span{background:var(--ok)}
   .progress.err span{background:var(--danger)}
   .cjob .progress{height:6px;margin-top:0}
@@ -490,7 +494,7 @@ try{const t=localStorage.getItem('pii_theme');if(t==='dark'||t==='light')documen
               <button id="sText" onclick="setSrcView('text')"><span data-i18n="v_raw">Testo</span></button>
             </div>
             <label class="btn quiet" id="pickBtn" data-i18n-title="t_pick" title="Carica un file"><svg class="i"><use href="#i-upload"/></svg><span data-i18n="pick">Carica</span>
-              <input type="file" id="pdf" hidden multiple accept=".pdf,.png,.jpg,.jpeg,.jfif,.tif,.tiff,.bmp,.webp,.gif,.md,.markdown,.txt,.csv,.tsv,application/pdf,image/*,text/markdown,text/plain,text/csv,text/tab-separated-values"></label>
+              <input type="file" id="pdf" hidden multiple accept=".pdf,.png,.jpg,.jpeg,.jfif,.tif,.tiff,.bmp,.webp,.gif,.md,.markdown,.txt,.csv,.tsv,.xlsx,application/pdf,image/*,text/markdown,text/plain,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
           </div>
         </div>
         <div class="bd">
@@ -511,8 +515,8 @@ try{const t=localStorage.getItem('pii_theme');if(t==='dark'||t==='light')documen
             <div class="dropzone" id="drop">
               <img src="/assets/mascot_doc.png" alt="" onerror="this.remove()">
               <div class="t1" data-i18n="dz_title">Trascina qui un documento</div>
-              <div class="t2" data-i18n="dz_sub">PDF, scansioni e foto vengono lette in locale, con l'OCR quando serve; i CSV colonna per colonna. Oppure incolla il testo.</div>
-              <div class="fmts"><span class="badge">PDF</span><span class="badge">PNG · JPG · TIFF</span><span class="badge">.md · .txt</span><span class="badge">CSV</span></div>
+              <div class="t2" data-i18n="dz_sub">PDF, scansioni e foto vengono lette in locale, con l'OCR quando serve; i CSV e i fogli Excel colonna per colonna. Oppure incolla il testo.</div>
+              <div class="fmts"><span class="badge">PDF</span><span class="badge">PNG · JPG · TIFF</span><span class="badge">.md · .txt</span><span class="badge">CSV · XLSX</span></div>
               <label class="btn ghost" for="pdf"><svg class="i"><use href="#i-upload"/></svg><span data-i18n="choose">Scegli un file</span></label>
             </div>
           </div>
@@ -719,7 +723,7 @@ const T = {
   src_ph:"Incolla qui il testo dell'atto, del contratto o della sentenza…",
   drop_here:"Rilascia per caricare",
   dz_title:"Trascina qui un documento",
-  dz_sub:"PDF, scansioni e foto vengono letti in locale, con l'OCR quando serve; i CSV colonna per colonna. Oppure incolla direttamente il testo.",
+  dz_sub:"PDF, scansioni e foto vengono letti in locale, con l'OCR quando serve; i CSV e i fogli Excel colonna per colonna. Oppure incolla direttamente il testo.",
   choose:"Scegli un file",
   go:"Anonimizza", clear:"Pulisci",
   v_pages:"Pagine", v_raw:"Testo", v_prev:"Evidenziato", v_text:"Testo", v_opdf:"PDF censurato",
@@ -753,15 +757,19 @@ const T = {
   t_dict_loaded:"Dizionario caricato", t_json_invalid:"JSON non valido",
   t_drag_pdf:"Formato non supportato: usa PDF, immagini (PNG, JPG, TIFF), .md, .txt o .csv",
   t_text_loaded:"Testo caricato",
-  csv_files:n=>n+" file CSV",
-  csv_mixed:"Sono stati caricati solo i CSV: gli altri file vanno elaborati a parte",
+  csv_files:n=>n+" file",
+  csv_mixed:"Sono stati caricati solo i CSV e i file Excel: gli altri file vanno elaborati a parte",
+  csv_sheets:n=>n+(n===1?" foglio":" fogli"), csv_sheet:"Foglio",
+  csv_dl_xlsx:"Scarica Excel",
+  csv_renamed:n=>n+(n===1?" foglio rinominato":" fogli rinominati")+": il nome conteneva dati personali",
+  csv_xlsx_note:"Excel: si esportano solo i valori (niente formattazione, formule, commenti o immagini).",
   csv_strict:"Fermati alla prima riga malformata",
   csv_analyze:"Anonimizza", csv_all:"tutte", csv_none:"nessuna",
   csv_col_on:"Colonna anonimizzata: le PII vengono sostituite da un placeholder",
   csv_col_off:"Colonna lasciata in chiaro: non viene nemmeno analizzata",
   csv_large:n=>"<b>File grande (oltre "+n+" MB)</b>: anonimizzare ogni colonna richiede tempo. Lascia in chiaro le colonne che non contengono dati personali per ridurre i tempi.",
   csv_uploading:p=>"Caricamento… "+p+"%", csv_reading:"Lettura dell'intestazione…",
-  csv_cols:(c,d,e)=>c+" colonne · separatore "+d+" · "+e,
+  csv_cols:(c,d,e)=>c+" colonne · separatore "+d+" · "+e, csv_cols_x:c=>c+(c===1?" colonna":" colonne"),
   csv_preview_n:n=>"prime "+n+" righe",
   csv_empty:"Scegli quali colonne anonimizzare e premi <b>Anonimizza</b>: l'avanzamento e i file da scaricare appariranno qui.",
   csv_wait_upload:"Attendi la fine del caricamento", csv_none_ready:"Nessun CSV pronto",
@@ -774,7 +782,7 @@ const T = {
   csv_dl:"Scarica CSV", csv_dl_dict:n=>"Dizionario ("+n+" ID)",
   csv_cancel:"Annulla", csv_queue:n=>"posizione "+n,
   csv_dict_off:"Dizionario disattivato: l'anonimizzazione di questi CSV è <b>definitiva</b>.",
-  csv_done_toast:n=>"CSV anonimizzati · "+n+" righe",
+  csv_done_toast:n=>"File anonimizzati · "+n+" righe",
   csv_dict_local:n=>"dizionario in memoria per il ripristino · "+n+" ID",
   csv_dict_big:"Dizionario grande: scaricalo e caricalo nel ripristino",
   pii_found:(n,u)=>n+" PII trovate · "+u+" valori unici",
@@ -836,7 +844,7 @@ const T = {
   src_ph:"Paste here the text of the deed, contract or judgment…",
   drop_here:"Drop to upload",
   dz_title:"Drop a document here",
-  dz_sub:"PDFs, scans and photos are read locally, with OCR when needed; CSV files column by column. Or just paste the text.",
+  dz_sub:"PDFs, scans and photos are read locally, with OCR when needed; CSV files and Excel sheets column by column. Or just paste the text.",
   choose:"Choose a file",
   go:"Anonymize", clear:"Clear",
   v_pages:"Pages", v_raw:"Text", v_prev:"Highlighted", v_text:"Text", v_opdf:"Redacted PDF",
@@ -870,15 +878,19 @@ const T = {
   t_dict_loaded:"Dictionary loaded", t_json_invalid:"Invalid JSON",
   t_drag_pdf:"Unsupported format: use PDF, images (PNG, JPG, TIFF), .md, .txt or .csv",
   t_text_loaded:"Text loaded",
-  csv_files:n=>n+" CSV file"+(n===1?"":"s"),
-  csv_mixed:"Only the CSV files were loaded: process the other files separately",
+  csv_files:n=>n+" file"+(n===1?"":"s"),
+  csv_mixed:"Only the CSV and Excel files were loaded: process the other files separately",
+  csv_sheets:n=>n+(n===1?" sheet":" sheets"), csv_sheet:"Sheet",
+  csv_dl_xlsx:"Download Excel",
+  csv_renamed:n=>n+(n===1?" sheet renamed":" sheets renamed")+": the name contained personal data",
+  csv_xlsx_note:"Excel: only values are exported (no formatting, formulas, comments or images).",
   csv_strict:"Stop at the first malformed row",
   csv_analyze:"Anonymize", csv_all:"all", csv_none:"none",
   csv_col_on:"Anonymized column: PII is replaced by a placeholder",
   csv_col_off:"Column left in clear text: not even analyzed",
   csv_large:n=>"<b>Large file (over "+n+" MB)</b>: anonymizing every column takes time. Leave in clear text the columns that contain no personal data to speed it up.",
   csv_uploading:p=>"Uploading… "+p+"%", csv_reading:"Reading the header…",
-  csv_cols:(c,d,e)=>c+" columns · delimiter "+d+" · "+e,
+  csv_cols:(c,d,e)=>c+" columns · delimiter "+d+" · "+e, csv_cols_x:c=>c+(c===1?" column":" columns"),
   csv_preview_n:n=>"first "+n+" rows",
   csv_empty:"Choose which columns to anonymize and press <b>Anonymize</b>: progress and the files to download will appear here.",
   csv_wait_upload:"Wait for the upload to finish", csv_none_ready:"No CSV ready",
@@ -891,7 +903,7 @@ const T = {
   csv_dl:"Download CSV", csv_dl_dict:n=>"Dictionary ("+n+" IDs)",
   csv_cancel:"Cancel", csv_queue:n=>"position "+n,
   csv_dict_off:"Dictionary off: anonymization of these CSVs is <b>irreversible</b>.",
-  csv_done_toast:n=>"CSVs anonymized · "+n+" rows",
+  csv_done_toast:n=>"Files anonymized · "+n+" rows",
   csv_dict_local:n=>"dictionary kept for restoring · "+n+" IDs",
   csv_dict_big:"Large dictionary: download it and load it in Restore",
   pii_found:(n,u)=>n+" PII found · "+u+" unique values",
@@ -1531,7 +1543,13 @@ function onFiles(fs){
 let CSV=null;                     // {files:[...], strict, job, status, outPrev, dictNote}
 let CSV_SEQ=0;
 const CSV_DICT_LOCAL_MAX=20000;   // oltre: il dizionario non va in localStorage, si scarica
-const isCsv=f=>/\.(csv|tsv)$/i.test(f.name)||f.type==='text/csv'||f.type==='text/tab-separated-values';
+const XLSX_MIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const isCsv=f=>/\.(csv|tsv|xlsx)$/i.test(f.name)||['text/csv','text/tab-separated-values',XLSX_MIME].includes(f.type);
+/* un CSV e' una tabella sola; un .xlsx una per foglio, ciascuna col suo piano */
+const csvIsX=it=>!!(it.fin&&it.fin.format==='xlsx');
+const csvTables=f=>f.sheets||[{name:null,header:f.header,preview:f.preview}];
+const csvPlans=it=>csvIsX(it)?it.plan:[it.plan];
+const csvShape=p=>JSON.stringify(p,(k,v)=>v&&v.mode?0:v);
 const jpost=(url,body)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
 const nf=n=>(n||0).toLocaleString(L);
 function fmtBytes(n){const u=['B','KB','MB','GB'];let i=0;while(n>=1024&&i<3){n/=1024;i++;}
@@ -1594,7 +1612,7 @@ async function csvUpload(it,keepPlan){
     d=await r.json();if(!r.ok)throw new Error(d.error||r.status);
     if(it.gone||CSV!==mine)return;
     it.fin=d;
-    if(!(keepPlan&&it.plan&&it.plan.length===d.header.length))it.plan=d.plan;
+    if(!(keepPlan&&it.plan&&csvShape(it.plan)===csvShape(d.plan)))it.plan=d.plan;
     it.state='ready';
   }catch(e){it.state='error';it.error=e.message;}
   if(CSV===mine&&!keepPlan)csvRender();
@@ -1619,33 +1637,60 @@ function csvRemove(key){
 
 /* ogni colonna: "anonymize" (stesso motore del testo: modello + regex/checksum) o
    "preserve" (lasciata intatta, nemmeno analizzata). Nessun'altra modalita'. */
-function csvMode(it,c){return ((it.plan||[])[c]||{}).mode==='preserve'?'preserve':'anonymize';}
-function csvSetCol(key,col,on){
+function csvMode(it,s,c){return ((csvPlans(it)[s]||[])[c]||{}).mode==='preserve'?'preserve':'anonymize';}
+function csvSetCol(key,s,col,on){
   const it=CSV&&CSV.files.find(f=>f.key===key);if(!it)return;
   const mode=on?'anonymize':'preserve';
-  it.plan[col]={mode};
+  csvPlans(it)[s][col]={mode};
   // ricolora la colonna senza ridisegnare la tabella (non perde lo scroll)
-  document.querySelectorAll('#csvt'+key+' [data-c="'+col+'"]').forEach(el=>{
+  document.querySelectorAll('#csvt'+key+'_'+s+' [data-c="'+col+'"]').forEach(el=>{
     el.classList.remove('m-anonymize','m-preserve');el.classList.add('m-'+mode);});
-  const cb=document.getElementById('csvc'+key+'_'+col);
+  const cb=document.getElementById('csvc'+key+'_'+s+'_'+col);
   if(cb){cb.checked=on;cb.parentNode.title=tt(on?'csv_col_on':'csv_col_off');}
 }
 function csvSetAll(key,on){
   const it=CSV&&CSV.files.find(f=>f.key===key);if(!it||!it.fin)return;
-  it.fin.header.forEach((_,c)=>csvSetCol(key,c,on));
+  csvTables(it.fin).forEach((t,s)=>t.header.forEach((_,c)=>csvSetCol(key,s,c,on)));
+}
+/* tabella dell'input con le spunte "Anonimizza" per colonna */
+function csvSrcTable(it,s,t,lock){
+  let h='';
+  if(t.name!=null)h+='<div class="sheetname">'+ico('table','sm')+escapeHtml(t.name)
+    +'<span class="hint">'+T[L].csv_cols_x(t.header.length)+'</span></div>';
+  if(!t.header.length)return h;
+  h+='<div class="csvwrap"><table class="csvtbl" id="csvt'+it.key+'_'+s+'"><thead><tr class="tog">';
+  t.header.forEach((name,c)=>{const m=csvMode(it,s,c),on=m==='anonymize';
+    h+='<th data-c="'+c+'" class="m-'+m+'"><label class="ctog" title="'+tt(on?'csv_col_on':'csv_col_off')+'">'
+      +'<input type="checkbox" id="csvc'+it.key+'_'+s+'_'+c+'"'+(on?' checked':'')+(lock?' disabled':'')
+      +' onchange="csvSetCol('+it.key+','+s+','+c+',this.checked)" aria-label="'+escapeHtml(tt('csv_analyze')+': '+name)+'">'
+      +tt('csv_analyze')+'</label></th>';});
+  h+='</tr><tr>';
+  t.header.forEach((name,c)=>{
+    h+='<th data-c="'+c+'" class="m-'+csvMode(it,s,c)+'" title="'+escapeHtml(name)+'">'+escapeHtml(name)+'</th>';});
+  h+='</tr></thead><tbody>';
+  for(const row of t.preview){
+    h+='<tr>';
+    t.header.forEach((_,c)=>{const val=String(row[c]??'');
+      h+='<td data-c="'+c+'" class="m-'+csvMode(it,s,c)+'" title="'+escapeHtml(val)+'">'+escapeHtml(val)+'</td>';});
+    h+='</tr>';
+  }
+  return h+'</tbody></table></div>';
 }
 
 function csvRender(){if(!CSV)return;csvRenderSrc();csvRenderOut();}
 
 function csvRenderSrc(){
   const v=$('csvSrcView');const lock=csvActive();
+  // "strict" vale solo per i CSV: in un .xlsx non ci sono righe malformate
+  const anyCsv=CSV.files.some(it=>!/\.xlsx$/i.test(it.file.name));
   let h='<div class="csvbar"><span class="cnt">'+T[L].csv_files(CSV.files.length)+'</span>'
-    +'<label style="margin-left:auto"><input type="checkbox" id="csvStrict"'+(CSV.strict?' checked':'')+(lock?' disabled':'')+'>'
-    +tt('csv_strict')+'</label></div>';
+    +(anyCsv?'<label style="margin-left:auto"><input type="checkbox" id="csvStrict"'+(CSV.strict?' checked':'')+(lock?' disabled':'')+'>'
+    +tt('csv_strict')+'</label>':'')+'</div>';
   for(const it of CSV.files){
     const f=it.fin,ready=it.state==='ready';
     const meta=[fmtBytes(it.file.size)];
-    if(f)meta.push(T[L].csv_cols(f.header.length,
+    if(f&&f.sheets)meta.push(T[L].csv_sheets(f.sheets.length));
+    else if(f)meta.push(T[L].csv_cols(f.header.length,
         '<span class="kbd">'+escapeHtml(f.delimiter==='\t'?'TAB':f.delimiter||'?')+'</span>',escapeHtml(f.encoding||'')),
       T[L].csv_preview_n(f.preview.length));
     h+='<div class="csvfile"><div class="filebar">'
@@ -1665,23 +1710,8 @@ function csvRenderSrc(){
     }else{
       if(f.large&&f.large_threshold)h+='<div class="callout">'+ico('clock')+'<div>'
         +T[L].csv_large(Math.round(f.large_threshold/1048576))+'</div></div>';
-      h+='<div class="csvwrap"><table class="csvtbl" id="csvt'+it.key+'"><thead><tr class="tog">';
-      f.header.forEach((name,c)=>{const m=csvMode(it,c),on=m==='anonymize';
-        h+='<th data-c="'+c+'" class="m-'+m+'"><label class="ctog" title="'+tt(on?'csv_col_on':'csv_col_off')+'">'
-          +'<input type="checkbox" id="csvc'+it.key+'_'+c+'"'+(on?' checked':'')+(lock?' disabled':'')
-          +' onchange="csvSetCol('+it.key+','+c+',this.checked)" aria-label="'+escapeHtml(tt('csv_analyze')+': '+name)+'">'
-          +tt('csv_analyze')+'</label></th>';});
-      h+='</tr><tr>';
-      f.header.forEach((name,c)=>{
-        h+='<th data-c="'+c+'" class="m-'+csvMode(it,c)+'" title="'+escapeHtml(name)+'">'+escapeHtml(name)+'</th>';});
-      h+='</tr></thead><tbody>';
-      for(const row of f.preview){
-        h+='<tr>';
-        f.header.forEach((_,c)=>{const val=String(row[c]??'');
-          h+='<td data-c="'+c+'" class="m-'+csvMode(it,c)+'" title="'+escapeHtml(val)+'">'+escapeHtml(val)+'</td>';});
-        h+='</tr>';
-      }
-      h+='</tbody></table></div>';
+      if(f.sheets)h+='<div class="sub xnote">'+tt('csv_xlsx_note')+'</div>';
+      csvTables(f).forEach((t,i)=>{h+=csvSrcTable(it,i,t,lock);});
     }
     h+='</div>';
   }
@@ -1721,12 +1751,13 @@ function csvRenderOut(){
       +(f.state==='done'?'':csvBar(f.state,fp))
       +'</div>'
       +(f.state==='done'?'<button class="btn ghost" title="'+escapeHtml(f.out_name)+'" onclick="csvDownload('+i+')">'
-          +ico('download','sm')+tt('csv_dl')+'</button>':'')
+          +ico('download','sm')+tt(/\.xlsx$/i.test(f.out_name)?'csv_dl_xlsx':'csv_dl')+'</button>':'')
       +'</div>';
     let sec='';
     if(f.skipped_lines&&f.skipped_lines.length)sec+='<div class="sub">'+T[L].csv_skipped_at(f.skipped_lines.join(', ')
         +(f.rows_skipped>f.skipped_lines.length?'…':''))+'</div>';
     if(f.error)sec+='<div class="sub err">'+escapeHtml(f.error)+'</div>';
+    if(f.sheets_renamed)sec+='<div class="sub">'+T[L].csv_renamed(f.sheets_renamed)+'</div>';
     const labs=Object.entries(f.by_label||{});
     if(labs.length)sec+='<div class="legend">'+labs.map(([k,n])=>{const c=colors(k);
       return '<span class="chip" style="cursor:default"><span class="sw" style="background:'+c.bd+'"></span>'
@@ -1757,14 +1788,20 @@ function csvOutTable(i){
   const P=CSV.outPrev[i];
   if(P===undefined){csvLoadOutPrev(i);return '<div class="sub">'+tt('csv_reading_out')+'</div>';}
   if(!P)return '';
-  let h='<div class="sub">'+T[L].csv_out_preview(P.preview.length,P.header.length)+'</div>'
-    +'<div class="csvwrap"><table class="csvtbl"><thead><tr>';
-  P.header.forEach(n=>{h+='<th title="'+escapeHtml(n)+'">'+escapeHtml(n)+'</th>';});
-  h+='</tr></thead><tbody>';
-  for(const row of P.preview){h+='<tr>';
-    P.header.forEach((_,c)=>{const v=String(row[c]??'');h+='<td title="'+escapeHtml(v)+'">'+csvPhCell(v)+'</td>';});
-    h+='</tr>';}
-  return h+'</tbody></table></div>';
+  let h='';
+  for(const t of csvTables(P)){
+    if(t.name!=null)h+='<div class="sheetname">'+ico('table','sm')+escapeHtml(t.name)+'</div>';
+    if(!t.header.length)continue;
+    h+='<div class="sub">'+T[L].csv_out_preview(t.preview.length,t.header.length)+'</div>'
+      +'<div class="csvwrap"><table class="csvtbl"><thead><tr>';
+    t.header.forEach(n=>{h+='<th title="'+escapeHtml(n)+'">'+escapeHtml(n)+'</th>';});
+    h+='</tr></thead><tbody>';
+    for(const row of t.preview){h+='<tr>';
+      t.header.forEach((_,c)=>{const v=String(row[c]??'');h+='<td title="'+escapeHtml(v)+'">'+csvPhCell(v)+'</td>';});
+      h+='</tr>';}
+    h+='</tbody></table></div>';
+  }
+  return h;
 }
 async function csvLoadOutPrev(i){
   const jid=CSV&&CSV.job;if(!jid||i in CSV.outPrev)return;

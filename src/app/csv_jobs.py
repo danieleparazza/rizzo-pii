@@ -43,6 +43,11 @@ regex/checksum, tag esclusi compresi) o resta intatta. `large` segnala all'UI i 
 oltre `large_threshold` byte (soglia passata da app.py, oggi = MAX_CONTENT_LENGTH):
 l'analisi col modello richiede tempo, conviene disattivare le colonne senza PII.
 
+File Excel (.xlsx): stesse rotte, motore `xlsx_engine` (se openpyxl e' installato).
+finalize ritorna `format: "xlsx"` e `sheets` = [{"name","header","preview","rows"}] al
+posto di header/preview/delimiter; il piano e' una lista di piani, uno per foglio. Un job
+puo' mescolare CSV e .xlsx: il registro degli pseudonimi e' lo stesso.
+
 Il modulo non importa torch ne' app: `detect_fn` arriva per iniezione da app.py
 (`create_blueprint(get_detect_fn=...)`), cosi' i test girano con un motore finto.
 """
@@ -68,7 +73,8 @@ CHUNK_MAX = CHUNK_SIZE + 64 * 1024    # tolleranza: oltre -> 413
 DISK_MARGIN = 256 * 1024 * 1024       # spazio da lasciare libero oltre a input+output
 PREVIEW_ROWS = 20
 MAX_SKIPPED_SHOWN = 50
-OK_EXT = (".csv", ".tsv", ".txt")
+OK_EXT = (".csv", ".tsv", ".txt", ".xlsx")
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 LOCK_NAME = ".lock"
 
 STATES = ("queued", "running", "done", "error", "cancelled")
@@ -166,9 +172,13 @@ def _safe_display_name(name):
     return base[:200] or "file.csv"
 
 
+def _is_xlsx(name):
+    return str(name).lower().endswith(".xlsx")
+
+
 def _out_name(name):
     stem, ext = os.path.splitext(name)
-    return f"{stem or 'file'}.anon{ext if ext.lower() in ('.csv', '.tsv') else '.csv'}"
+    return f"{stem or 'file'}.anon{ext if ext.lower() in ('.csv', '.tsv', '.xlsx') else '.csv'}"
 
 
 def _safe_error(exc, safe=ValueError):
@@ -190,6 +200,7 @@ class Upload:
         self.path = path
         self.received = 0
         self.dialect = None       # risultato di sniff(), dopo finalize
+        self.xlsx = _is_xlsx(name)  # cartella di lavoro Excel (xlsx_engine) invece di CSV
         self.job_id = None        # assegnato quando entra in un job
         self.lock = threading.Lock()
         self.touched = time.time()
@@ -222,6 +233,7 @@ class JobFile:
             "bytes_done": self.bytes_total if self.state == "done" else self.bytes_done,
             "bytes_total": self.bytes_total,
             "error": self.error,
+            "sheets_renamed": rep.get("sheets_renamed", 0),
         }
 
 
@@ -270,17 +282,33 @@ class Job:
 # --------------------------------------------------------------------------- #
 # Blueprint
 # --------------------------------------------------------------------------- #
+def _load_xlsx_engine():
+    try:
+        import xlsx_engine
+    except ImportError:          # openpyxl non installato: niente Excel, i CSV funzionano
+        return None
+    return xlsx_engine
+
+
 def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=None,
-                     valid_tags=None, large_threshold=None, url_prefix="/csv"):
+                     valid_tags=None, large_threshold=None, url_prefix="/csv",
+                     xlsx_engine=None):
     """get_prefs() -> (excluded_tags, mapping_enabled) : default del server.
     get_detect_fn() -> detect_fn | None, risolto a ogni job (il modello puo' caricarsi dopo).
     large_threshold() -> byte | None: oltre questa taglia finalize segnala "large"
     (None = nessun avviso). E' una callable per seguire la config dell'app.
     engine: modulo con l'API di csv_engine (iniettabile nei test).
+    xlsx_engine: idem per i .xlsx (default: xlsx_engine se openpyxl c'e', altrimenti i
+    .xlsx vengono rifiutati all'upload).
     root: cartella dei temporanei (default <config_dir>/csv_jobs)."""
     if engine is None:
         import csv_engine as engine
+    if xlsx_engine is None:
+        xlsx_engine = _load_xlsx_engine()
     safe_exc = getattr(engine, "CsvError", ValueError)
+
+    def _eng(up):
+        return xlsx_engine if up.xlsx else engine
     root = Path(root) if root is not None else default_root()
     sweep_stale(root)
     inst = _Instance(root)
@@ -344,7 +372,7 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
                         jf.bytes_total = total
 
                 try:
-                    jf.report = engine.process_file(
+                    jf.report = _eng(jf.upload).process_file(
                         str(jf.upload.path), str(jf.out_path), jf.plan,
                         registry=job.registry, detect_fn=detect_fn,
                         excluded=job.excluded, dialect=jf.upload.dialect,
@@ -432,7 +460,9 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
         if size <= 0:
             return err("Il file è vuoto.")
         if not name.lower().endswith(OK_EXT):
-            return err("Formato non supportato: servono file .csv.")
+            return err("Formato non supportato: servono file .csv o .xlsx.")
+        if _is_xlsx(name) and not xlsx_engine:
+            return err("Supporto Excel non disponibile (manca openpyxl).", 501)
         base = inst.dir
         _reap()
         _ensure_worker()                       # fa anche da spazzino periodico
@@ -444,7 +474,7 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
         uid = _new_id()
         d = base / f"u_{uid}"
         d.mkdir()
-        path = d / "input.csv"
+        path = d / ("input.xlsx" if _is_xlsx(name) else "input.csv")
         path.touch()
         with lock:
             uploads[uid] = Upload(uid, name, size, path)
@@ -491,6 +521,8 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
                         "complete": received == up.size})
 
     def _plan(up):
+        if up.xlsx:
+            return xlsx_engine.default_plan(up.dialect)
         return engine.default_plan(up.dialect["header"])
 
     def _threshold():
@@ -509,7 +541,7 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
             if up.received != up.size:
                 return err("Upload incompleto.", 409, received=up.received)
             try:
-                up.dialect = engine.sniff(str(up.path), n_preview=PREVIEW_ROWS)
+                up.dialect = _eng(up).sniff(str(up.path), n_preview=PREVIEW_ROWS)
                 plan = _plan(up)
             except NotImplementedError:
                 return err("Motore CSV non disponibile.", 501)
@@ -518,14 +550,18 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
                 return err(_safe_error(e, safe_exc), 422)
         d = up.dialect
         threshold = _threshold()
-        return jsonify({
-            "upload_id": uid, "name": up.name, "size": up.size,
-            "header": d["header"], "preview": d.get("preview", [])[:PREVIEW_ROWS],
-            "delimiter": d.get("delimiter"), "encoding": d.get("encoding"),
-            "newline": d.get("newline"), "plan": plan, "modes": list(engine.MODES),
-            "large": bool(threshold) and up.size > threshold,
-            "large_threshold": threshold,
-        })
+        out = {"upload_id": uid, "name": up.name, "size": up.size, "plan": plan,
+               "modes": list(engine.MODES), "large": bool(threshold) and up.size > threshold,
+               "large_threshold": threshold}
+        if up.xlsx:
+            out.update(format="xlsx", sheets=[{**s, "preview": s["preview"][:PREVIEW_ROWS]}
+                                              for s in d["sheets"]])
+        else:
+            out.update(format="csv", header=d["header"],
+                       preview=d.get("preview", [])[:PREVIEW_ROWS],
+                       delimiter=d.get("delimiter"), encoding=d.get("encoding"),
+                       newline=d.get("newline"))
+        return jsonify(out)
 
     @bp.route("/uploads/<uid>", methods=["DELETE"])
     def upload_delete(uid):
@@ -540,7 +576,10 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
         return jsonify({"ok": True})
 
     # -------------------------------------------------------------------- jobs
-    def _check_plan(plan, header):
+    def _check_plan(plan, up):
+        if up.xlsx:
+            return xlsx_engine.check_plan(plan, up.dialect)
+        header = up.dialect["header"]
         if not isinstance(plan, list) or len(plan) != len(header):
             return "Il piano deve avere una voce per colonna."
         for c in plan:
@@ -585,7 +624,7 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
             plan = it.get("plan")
             if plan is None:
                 plan = _plan(up)
-            msg = _check_plan(plan, up.dialect["header"])
+            msg = _check_plan(plan, up)
             if msg:
                 return err(f"{up.name}: {msg}")
             chosen.append((up, plan))
@@ -599,7 +638,7 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
                 return err("Upload già usato da un altro job.", 409)
             for up, _ in chosen:
                 up.job_id = jid
-            files = [JobFile(up, plan, workdir / f"out_{i}.csv")
+            files = [JobFile(up, plan, workdir / f"out_{i}{'.xlsx' if up.xlsx else '.csv'}")
                      for i, (up, plan) in enumerate(chosen)]
             job = Job(jid, files, mapping, excluded, strict, workdir)
             jobs[jid] = job
@@ -640,7 +679,8 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
         jf = job.files[i]
         if jf.state != "done" or not jf.out_path.exists():
             return err("Output non ancora pronto.", 409)
-        return send_file(str(jf.out_path), mimetype="text/csv", as_attachment=True,
+        return send_file(str(jf.out_path), mimetype=XLSX_MIME if jf.upload.xlsx else "text/csv",
+                         as_attachment=True,
                          download_name=_out_name(jf.upload.name), conditional=False,
                          max_age=0)
 
@@ -657,11 +697,17 @@ def create_blueprint(get_prefs, get_detect_fn=lambda: None, engine=None, root=No
         if jf.state != "done" or not jf.out_path.exists():
             return err("Output non ancora pronto.", 409)
         try:
-            d = engine.sniff(str(jf.out_path), n_preview=PREVIEW_ROWS)
+            d = _eng(jf.upload).sniff(str(jf.out_path), n_preview=PREVIEW_ROWS)
         except Exception as e:  # noqa: BLE001
             return err(_safe_error(e, safe_exc), 422)
-        return jsonify({"header": d["header"], "preview": d.get("preview", [])[:PREVIEW_ROWS],
-                        "rows_out": (jf.report or {}).get("rows_out")})
+        rows_out = (jf.report or {}).get("rows_out")
+        if jf.upload.xlsx:
+            return jsonify({"format": "xlsx", "rows_out": rows_out,
+                            "sheets": [{"name": s["name"], "header": s["header"],
+                                        "preview": s["preview"][:PREVIEW_ROWS]}
+                                       for s in d["sheets"]]})
+        return jsonify({"format": "csv", "header": d["header"],
+                        "preview": d.get("preview", [])[:PREVIEW_ROWS], "rows_out": rows_out})
 
     @bp.route("/jobs/<jid>/dictionary", methods=["GET"])
     def job_dictionary(jid):
