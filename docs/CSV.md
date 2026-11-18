@@ -11,6 +11,8 @@ Codice: `src/app/csv_engine.py` (motore),
 torch né `app.py` e si testano in CI (`tests/test_csv_engine.py`, `tests/test_csv_jobs.py`,
 `tests/test_registry.py`).
 
+Anche i **file Excel `.xlsx`** passano di qui: vedi [File Excel](#file-excel-xlsx) in fondo.
+
 ## Perché
 
 Gli export tabellari grandi (log applicativi o di audit, export di CRM e ticketing, anagrafiche,
@@ -264,6 +266,38 @@ curl -s -X POST localhost:5005/csv/jobs -H 'Content-Type: application/json' \
 6. Chiudendo la modalità CSV (✕ o cambiando input) la UI chiama `DELETE` e i temporanei spariscono.
 
 La UI esegue un job alla volta; chi usa l'API può accodarne altri (FIFO).
+
+## File Excel (.xlsx)
+
+La modalità CSV accetta anche cartelle di lavoro Excel `.xlsx` (anche insieme ai CSV nello stesso
+job: il registro degli pseudonimi è uno solo). Motore: `src/app/xlsx_engine.py`, stessa API di
+`csv_engine` e stesso cuore (`csv_engine.RowBatcher`: batch al modello, cache, registro). Unica
+dipendenza nuova: **openpyxl** (puro Python); senza, i `.xlsx` vengono rifiutati con `501` e i CSV
+funzionano come prima. Test: `tests/test_xlsx_engine.py`, `tests/test_xlsx_jobs.py`.
+
+- **Un piano per foglio.** `finalize` ritorna `format: "xlsx"` e `sheets` =
+  `[{"name", "header", "preview", "rows"}]` al posto di `header`/`preview`/`delimiter`; il piano è una
+  lista di piani, uno per foglio (`[[{"mode": ...}, ...], ...]`). La prima riga di ogni foglio è
+  l'intestazione e resta com'è. Le celle oltre l'ultima colonna dell'intestazione si anonimizzano.
+- **Celle tipizzate.** Numeri e date si analizzano come testo (date `gg/mm/aaaa`): se il motore non
+  vi trova nulla la cella resta identica, col suo tipo; altrimenti diventa testo con lo pseudonimo.
+  I booleani non si analizzano.
+- **Formule → valori.** Si legge il valore calcolato salvato nel file e si scrive quello: la formula
+  sparisce (potrebbe contenere la PII, es. `="Mario "&B2`). Un file mai aperto in Excel (generato da
+  script) può non avere valori calcolati: quelle celle escono vuote.
+- **Solo valori in uscita.** Niente formattazione, larghezze, celle unite, commenti, immagini,
+  grafici, nomi definiti, intestazioni/piè di pagina o proprietà del documento (autore…). È il prezzo
+  dello streaming (`write_only`), e sono anche posti in cui le PII sopravviverebbero.
+- **Nomi dei fogli.** Se il motore trova una PII nel nome di un foglio con colonne da anonimizzare, il
+  foglio diventa `Foglio N` (un `[TAG_N]` non è un nome di foglio valido); l'UI lo segnala.
+- **Testo che inizia con `=`** resta testo, non diventa una formula.
+- **File temporanei.** openpyxl scrive ogni foglio in un file temporaneo prima di comprimerlo, di
+  suo nella cartella temp di sistema: qui sta accanto all'output, nella cartella del job, e si
+  cancella anche se il job viene annullato.
+- **Memoria.** I fogli si leggono in streaming, ma la tabella delle stringhe condivise del file sta
+  tutta in RAM. Un `.xlsx` ha al massimo ~1M righe per foglio.
+- Non supportati: `.xls` (vecchio formato binario), `.xlsm`/`.xlsb`, file protetti da password.
+- Avanzamento in byte stimati dalle righe dichiarate nel file; l'opzione `strict` non ha effetto.
 
 ## Limiti noti
 

@@ -5,6 +5,24 @@ Le voci più recenti in alto. (Codice: `src/training/train_pii.py` salvo diverso
 
 ---
 
+## 2026-11-18 — File Excel .xlsx nella modalità CSV (`xlsx_engine.py`, `csv_jobs.py`, UI)
+
+Gli export tabellari arrivano spesso come `.xlsx`: convertirli in CSV a mano è un passaggio in più
+e su più fogli scomodo. Ora la dropzone accetta anche `.xlsx`, con le stesse regole dei CSV.
+
+Scelte e motivazioni:
+- **Stesso cuore.** Il ciclo "righe → batch al rilevatore → pseudonimi" è stato estratto da
+  `csv_engine.process_file` in `csv_engine.RowBatcher`, usato da entrambi i formati: niente logica
+  duplicata, i test CSV coprono anche il pezzo condiviso.
+- **openpyxl in streaming** (`read_only` + `write_only`): memoria limitata anche su fogli grandi.
+  Il prezzo è un output di soli valori, che è anche più sicuro (commenti, proprietà, intestazioni
+  e oggetti incorporati sono posti dove le PII sopravviverebbero).
+- **Tipi conservati** quando non c'è nulla da sostituire: un numero resta un numero.
+- **Nessun file fuori dalla cartella del job**: i temporanei di openpyxl, che di suo userebbe la
+  temp di sistema, vanno in `<out>.sheets/` e si cancellano anche in caso di annullamento.
+
+---
+
 ## 2026-11-13 — Supporto nativo ai file CSV (`csv_engine.py`, `csv_jobs.py`, `registry.py`, `app.py`)
 
 Serviva anonimizzare in locale export tabellari molto grandi (log applicativi e di audit, export di

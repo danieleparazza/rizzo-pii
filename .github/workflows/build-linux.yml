@@ -75,7 +75,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install --no-cache-dir tokenizers numpy onnxruntime \
             flask pymupdf pyinstaller "huggingface_hub[cli]" \
-            pyclipper pyyaml
+            pyclipper pyyaml openpyxl
 
       # File elencati uno per uno (vedi build-windows.yml: --include con piu' valori salta onnx/).
       - name: Scarica il modello ONNX da Hugging Face

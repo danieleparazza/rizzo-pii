@@ -584,6 +584,10 @@ curl -X POST localhost:5005/csv/uploads -H 'Content-Type: application/json' \
 # …see docs/CSV.md for the full flow (/csv/uploads, /csv/jobs, /csv/jobs/<id>/files/<i>, /dictionary)
 ```
 
+**Excel `.xlsx` files** work the same way, one column plan per sheet (needs `openpyxl`). Numbers and
+dates are analyzed too and keep their type when nothing is found; formulas become their saved values and
+the output holds values only (no formatting, comments or images, where PII would survive).
+
 Full details and an end-to-end example: **[docs/CSV.md](docs/CSV.md)** (in Italian).
 
 ### Reversible or irreversible: your call
@@ -662,6 +666,7 @@ rizzo_pii/
 │       ├─ registry.py                shared pseudonym registry (one per job)
 │       ├─ csv_engine.py              streaming CSV engine (stdlib only)
 │       ├─ csv_jobs.py                chunked uploads, job queue, downloads (/csv/*)
+│       ├─ xlsx_engine.py             Excel (.xlsx) engine, same API as csv_engine (openpyxl)
 │       ├─ serve.py                   headless entry (backend of the Tauri app, no browser)
 │       ├─ desktop_app.py             legacy PyInstaller entry (opens the browser)
 │       └─ assets/                    mascot (the hedgehog) and icons

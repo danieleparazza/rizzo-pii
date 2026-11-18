@@ -172,6 +172,12 @@ modelli in `models/<versione>/`, artefatti dei run in `experiments/<run>/`, doc 
   `ui/index.html` (upload a pezzi, checkbox "Anonimizza" per colonna
   + "tutte · nessuna", polling del job). Limiti: nessuna CLI, nessuna persistenza tra esecuzioni, solo UTF-8/UTF-8 BOM,
   niente dialoghi file nativi Tauri.
+  **Excel `.xlsx`** — `xlsx_engine.py` (dipendenza **openpyxl**; senza, `.xlsx` → 501): stessa API
+  di `csv_engine` e stesso cuore `csv_engine.RowBatcher`; `csv_jobs` sceglie il motore
+  dall'estensione. Dialetto con `sheets` e piano **per foglio** (lista di liste). Numeri/date
+  analizzati come testo (tipo conservato se non c'è PII), formule → valori calcolati, output **solo
+  valori** (`write_only`); fogli con PII nel nome → `Foglio N`; i file temporanei dei fogli di
+  openpyxl vanno in `<out>.sheets/` nella cartella del job, **mai nella temp di sistema**.
 - `pdf_export.py` + endpoint **`POST /pdf`** — **download del PDF anonimizzato** (issue #7, punto 1),
   bottone "📄 Scarica PDF anonimizzato" nella card Risultato. Due modalità: se l'input era un **PDF**
   si fa **redazione vera** del documento originale (`apply_redactions()`: il testo esce dal content
