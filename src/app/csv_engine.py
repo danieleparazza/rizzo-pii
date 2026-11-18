@@ -349,6 +349,100 @@ class _Cache:
             self.chars -= len(old)
 
 
+# --------------------------------------------------------------------------- righe
+
+def _as_text(value):
+    """Testo da analizzare di una cella: le stringhe cosi' come sono, il resto no."""
+    return value if isinstance(value, str) else None
+
+
+class RowBatcher:
+    """Il cuore condiviso dai formati tabellari (CSV, Excel): accumula righe, manda i
+    testi delle colonne anonymize al rilevatore a batch (cache LRU dei risultati) e
+    restituisce le righe con gli pseudonimi del registro, nell'ordine d'arrivo.
+
+    add(row, modes): row = lista di celle (str o, per Excel, valori tipizzati).
+    to_text(cella) -> str | None: il testo da analizzare (None = cella lasciata com'e').
+    Una cella in cui non si trova nulla torna IDENTICA (stesso oggetto, stesso tipo);
+    altrimenti diventa il testo con gli pseudonimi. Solo le celle str possono essere JSON.
+    emit(riga) per ogni riga pronta; on_flush() dopo ogni flush (avanzamento);
+    cancel() -> True interrompe con Cancelled al flush successivo."""
+
+    def __init__(self, registry, detect_fn, excluded, batch_size, emit, *, cancel=None,
+                 on_flush=None, to_text=_as_text):
+        self.registry = registry
+        self.detect_fn = detect_fn
+        self.excluded = set(excluded or ())
+        self.batch_size = max(1, int(batch_size))
+        self.emit = emit
+        self.cancel = cancel
+        self.on_flush = on_flush
+        self.to_text = to_text
+        self.cache = _Cache(CACHE_SIZE)
+        self.counts = {}
+        self.pending = []   # righe in attesa: lista di celle (("keep", v) | ("text", ...) | ("json", ...))
+        self.todo = {}      # testo -> None, testi da rilevare nel prossimo flush
+
+    def _lookup(self, text):
+        hit = self.cache.get(text)
+        if hit is None:
+            self.todo[text] = None
+        return hit
+
+    def _detect(self, texts):
+        res = self.detect_fn(list(texts), set(self.excluded))
+        if len(res) != len(texts):
+            raise CsvError("il motore di rilevamento ha restituito un numero di risultati "
+                           "diverso dai testi")
+        return res
+
+    def add(self, row, modes):
+        cells = []
+        for value, mode in zip(row, modes):
+            text = self.to_text(value) if mode != "preserve" else None
+            if text is None or not text.strip():
+                cells.append(("keep", value))
+                continue
+            leaves = _json_leaves(text) if isinstance(value, str) else None
+            if leaves is None:
+                cells.append(("text", value, text, self._lookup(text)))
+            else:
+                cells.append(("json", text, leaves, [self._lookup(lv[2]) for lv in leaves]))
+        self.pending.append(cells)
+        if len(self.todo) >= self.batch_size or len(self.pending) >= self.batch_size:
+            self.flush()
+
+    def flush(self):
+        if self.cancel is not None and self.cancel():
+            raise Cancelled()
+        results = {}
+        texts = list(self.todo)
+        for k in range(0, len(texts), self.batch_size):
+            chunk = texts[k:k + self.batch_size]
+            for t, spans in zip(chunk, self._detect(chunk)):
+                clean = _clean(spans, len(t), self.excluded)
+                results[t] = clean
+                self.cache.put(t, clean)
+        self.todo.clear()
+        for cells in self.pending:
+            row = []
+            for c in cells:
+                if c[0] == "keep":
+                    row.append(c[1])
+                elif c[0] == "text":
+                    _, value, text, spans = c
+                    spans = spans if spans is not None else results[text]
+                    row.append(_apply(text, spans, self.registry, self.counts) if spans else value)
+                else:  # json
+                    _, cell, leaves, found = c
+                    res = [f if f is not None else results[lv[2]] for lv, f in zip(leaves, found)]
+                    row.append(_apply_json(cell, leaves, res, self.registry, self.counts))
+            self.emit(row)
+        self.pending.clear()
+        if self.on_flush is not None:
+            self.on_flush()
+
+
 # --------------------------------------------------------------------------- process
 
 def _validate_plan(plan, ncols):
@@ -393,16 +487,7 @@ def process_file(in_path, out_path, plan, *, registry, detect_fn, excluded=(),
     total = os.path.getsize(in_path)
     partial = out_path + ".partial"
     fmt = _row_writer(delimiter, newline)
-    cache = _Cache(CACHE_SIZE)
-    counts = {}
     rep = {"rows_in": 0, "rows_out": 0, "rows_skipped": 0, "skipped_lines": []}
-
-    def detect(texts):
-        res = detect_fn(list(texts), set(excluded))
-        if len(res) != len(texts):
-            raise CsvError("il motore di rilevamento ha restituito un numero di risultati "
-                           "diverso dai testi")
-        return res
 
     try:
         with open(in_path, "rb") as raw, open(partial, "w", encoding=encoding, newline="") as out:
@@ -416,46 +501,16 @@ def process_file(in_path, out_path, plan, *, registry, detect_fn, excluded=(),
             ncols = len(header)
             out.write(fmt(header))
 
-            pending = []   # righe in attesa: lista di celle (str) o job
-            todo = {}      # testo -> None, testi da rilevare nel prossimo flush
+            def emit(row):
+                out.write(fmt(row))
+                rep["rows_out"] += 1
 
-            def flush():
-                if cancel is not None and cancel():
-                    raise Cancelled()
-                results = {}
-                texts = list(todo)
-                for k in range(0, len(texts), batch_size):
-                    chunk = texts[k:k + batch_size]
-                    for t, spans in zip(chunk, detect(chunk)):
-                        clean = _clean(spans, len(t), excluded)
-                        results[t] = clean
-                        cache.put(t, clean)
-                todo.clear()
-                for cells in pending:
-                    row = []
-                    for c in cells:
-                        if isinstance(c, str):
-                            row.append(c)
-                        elif c[0] == "text":
-                            _, text, spans = c
-                            spans = spans if spans is not None else results[text]
-                            row.append(_apply(text, spans, registry, counts))
-                        else:  # json
-                            _, cell, leaves, found = c
-                            res = [f if f is not None else results[lv[2]]
-                                   for lv, f in zip(leaves, found)]
-                            row.append(_apply_json(cell, leaves, res, registry, counts))
-                    out.write(fmt(row))
-                rep["rows_out"] += len(pending)
-                pending.clear()
+            def flushed():
                 if progress is not None:
                     progress(rep["rows_in"], min(raw.tell(), total), total)
 
-            def lookup(text):
-                hit = cache.get(text)
-                if hit is None:
-                    todo[text] = None
-                return hit
+            rows = RowBatcher(registry, detect_fn, excluded, batch_size, emit,
+                              cancel=cancel, on_flush=flushed)
 
             def skip(line):
                 if strict:
@@ -486,21 +541,8 @@ def process_file(in_path, out_path, plan, *, registry, detect_fn, excluded=(),
                 if len(row) != ncols:
                     skip(start_line)
                     continue
-                cells = []
-                for cell, mode in zip(row, modes):
-                    if mode == "preserve" or not cell.strip():
-                        cells.append(cell)
-                        continue
-                    leaves = _json_leaves(cell)
-                    if leaves is None:
-                        cells.append(("text", cell, lookup(cell)))
-                    else:
-                        found = [lookup(lv[2]) for lv in leaves]
-                        cells.append(("json", cell, leaves, found))
-                pending.append(cells)
-                if len(todo) >= batch_size or len(pending) >= batch_size:
-                    flush()
-            flush()
+                rows.add(row, modes)
+            rows.flush()
             text_in.detach()
         os.replace(partial, out_path)
     except BaseException:
@@ -512,6 +554,6 @@ def process_file(in_path, out_path, plan, *, registry, detect_fn, excluded=(),
 
     if progress is not None:
         progress(rep["rows_in"], total, total)
-    rep["by_label"] = counts
+    rep["by_label"] = rows.counts
     rep["seconds"] = round(time.monotonic() - t0, 3)
     return rep
