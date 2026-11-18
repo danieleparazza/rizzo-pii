@@ -28,6 +28,8 @@ python-dotenv
 # Local anonymization app (Flask UI + PDF parsing)
 flask
 pymupdf
+# File Excel .xlsx nella modalita' CSV (src/app/xlsx_engine.py)
+openpyxl
 # Inferenza dell'app senza torch (src/app/onnx_ner.py) + export (src/training/export_onnx.py)
 onnx
 onnxruntime
